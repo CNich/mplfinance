@@ -3,6 +3,9 @@ import pandas   as pd
 import numpy    as np
 import datetime
 
+# from mplfinance.plotting import _valid_addplot_kwargs # This does not work
+import mplfinance.plotting
+
 def _check_and_prepare_data(data, config):
     '''
     Check and Prepare the data input:
@@ -46,6 +49,37 @@ def _check_and_prepare_data(data, config):
 
     return dates, opens, highs, lows, closes, volumes
 
+
+def _prepare_trades(value):
+    '''
+    Prepare trades data input:
+    For now, data must be a Pandas DataFrame/Series with a DatetimeIndex
+    and columns named 'Price'. This is a shortened version of _check_and_prepare_data
+
+    The input to this is either a DataFrame, or a dictionary with data/custom plot settings:
+    {
+        'data': DataFrame,
+        'markersize': float, (optional)
+        'marker': str, (optional)
+        'color': str, (optional)
+    }
+
+    Return a Tuple: (extracted data, datetimes, prices, plot settings)
+    '''
+    if isinstance(value, dict):
+        data = value["data"]
+        kwargs = {x: value[x] for x in value if x not in {"data"}}
+    else:
+        data = value
+        kwargs = {}
+
+    if not all(isinstance(v, (float, int)) for v in data['Price']):
+        raise ValueError('Data for column "Price" must be ALL float or int.')
+
+    dates = mdates.date2num(data.index.to_pydatetime())
+    prices = data['Price'].values
+
+    return data, dates, prices, kwargs
 
 def _mav_validator(mav_value):
     ''' 
@@ -172,6 +206,27 @@ def _tlines_validator(value):
         return True
     else:
         return _tlines_subvalidator(value)
+
+def _trades_validator(value):
+    '''
+    Validate `trades` added to plot. Parameter added must be either a DataFrame
+    with a DatetimeIndex or a dictionary with key="data" holding the data and
+    any other plotting parameters that are consistent with _valid_addplot_kwargs
+    '''
+    if isinstance(value, dict):
+        data = value['data']
+        kwargs = {x: value[x] for x in value if x not in {"data"}}
+        _process_kwargs(kwargs, mplfinance.plotting._valid_addplot_kwargs())
+    else:
+        data = value
+
+    if not isinstance(data, pd.core.frame.DataFrame):
+       raise TypeError('Expect data as DataFrame')
+
+    if not isinstance(data.index, pd.core.indexes.datetimes.DatetimeIndex):
+        raise TypeError('Expect data.index as DatetimeIndex')
+
+    return True
 
 def _bypass_kwarg_validation(value):
     ''' For some kwargs, we either don't know enough, or

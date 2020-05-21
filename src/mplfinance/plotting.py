@@ -28,10 +28,11 @@ from mplfinance._utils import IntegerIndexDateTimeFormatter
 from mplfinance import _styles
 
 from mplfinance._arg_validators import _check_and_prepare_data, _mav_validator
-from mplfinance._arg_validators import _process_kwargs, _validate_vkwargs_dict
+from mplfinance._arg_validators import _process_kwargs, _validate_vkwargs_dict, _prepare_trades
 from mplfinance._arg_validators import _kwarg_not_implemented, _bypass_kwarg_validation
 from mplfinance._arg_validators import _hlines_validator, _vlines_validator
 from mplfinance._arg_validators import _alines_validator, _tlines_validator
+from mplfinance._arg_validators import _trades_validator
 
 VALID_PMOVE_TYPES = ['renko', 'pnf']
 
@@ -167,6 +168,13 @@ def _valid_plot_kwargs():
  
         'tlines'                    : { 'Default'     : None, 
                                         'Validator'   : lambda value: _tlines_validator(value) },
+
+        'buys'                      : {'Default'      : None,
+                                        'Validator'   : lambda value: _trades_validator(value) },
+
+        'sells'                     : {'Default'      : None,
+                                       'Validator'    : lambda value: _trades_validator(value) },
+
     }
 
     _validate_vkwargs_dict(vkwargs)
@@ -342,6 +350,29 @@ def plot( data, **kwargs ):
                 ax1.plot(xdates, mavprices, color=next(mavc))
             else:
                 ax1.plot(xdates, mavprices)
+
+
+    # Process trades if they are provided
+    # For now we assume we only want to plot trades as a scatter plot
+    for side in ['buys', 'sells']:
+        trades = config[side]
+        if side == 'buys':
+            default_color = style['marketcolors']['volume']['up']
+            default_marker = '^'
+        else:
+            default_color = style['marketcolors']['volume']['down']
+            default_marker = 'v'
+
+        if trades is not None:
+            trade_data, trade_dates, trade_prices, trade_kwargs = _prepare_trades(trades)
+            if type(formatter) == IntegerIndexDateTimeFormatter:
+                trade_dates = convert_to_integer_index_dates(data, trade_data)
+            default_scatter_args = _valid_addplot_kwargs()
+            trade_color = trade_kwargs.get('color', default_color)
+            trade_marker = trade_kwargs.get('marker', default_marker)
+            trade_markersize = trade_kwargs.get('markersize', default_scatter_args['markersize']['Default'])
+            ax1.scatter(trade_dates, trade_prices, color=trade_color, s=math.pow(trade_markersize, math.sqrt(2)),
+                        marker=trade_marker, zorder=20)
 
     avg_dist_between_points = (xdates[-1] - xdates[0]) / float(len(xdates))
     minx = xdates[0]  - avg_dist_between_points
@@ -604,7 +635,8 @@ def plot( data, **kwargs ):
     elif not config['returnfig']:
         # https://stackoverflow.com/a/13361748/1639359 suggests plt.show(block=False)
         plt.show(block=config['block'])
-    
+
+
     if config['returnfig']:
         return (fig, axlist)
 
@@ -661,3 +693,18 @@ def make_addplot(data, **kwargs):
     config = _process_kwargs(kwargs, _valid_addplot_kwargs())
 
     return dict( data=data, **config)
+
+def convert_to_integer_index_dates(data, trades):
+    '''
+    If we are plotting data where show_nontrading=False, then we need to calculate
+    each x-axis point individually since the x-axis is formatted as an
+    IntegerIndexDateTimeFormatter
+    '''
+
+    # It might make sense to move this as a helper function in IntegerIndexDateTimeFormatter
+    fixed_xdates = []
+    for i in range(len(trades)):
+        time_delta = abs(data.index - trades.index[i])
+        fixed_xdates.append(time_delta.argmin())
+    return fixed_xdates
+
