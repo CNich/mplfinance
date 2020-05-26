@@ -2,6 +2,7 @@ import matplotlib.dates  as mdates
 import pandas   as pd
 import numpy    as np
 import datetime
+import mplfinance.plotting
 
 def _check_and_prepare_data(data, config):
     '''
@@ -172,6 +173,27 @@ def _tlines_validator(value):
         return True
     else:
         return _tlines_subvalidator(value)
+
+def _trades_validator(value):
+    '''
+    Validate `trades` added to plot. Parameter added must be either a DataFrame
+    with a DatetimeIndex or a dictionary with key="data" holding the data and
+    any other plotting parameters that are consistent with _valid_addplot_kwargs
+    '''
+    if isinstance(value, dict):
+        data = value['data']
+        kwargs = {x: value[x] for x in value if x not in {"data"}}
+        _process_kwargs(kwargs, mplfinance.plotting._valid_addplot_kwargs())
+    else:
+        data = value
+
+    if not isinstance(data, pd.core.frame.DataFrame):
+       raise TypeError('Expect data as DataFrame')
+
+    if not isinstance(data.index, pd.core.indexes.datetimes.DatetimeIndex):
+        raise TypeError('Expect data.index as DatetimeIndex')
+
+    return True
 
 def _bypass_kwarg_validation(value):
     ''' For some kwargs, we either don't know enough, or

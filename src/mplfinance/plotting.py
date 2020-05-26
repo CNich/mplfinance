@@ -32,6 +32,7 @@ from mplfinance._arg_validators import _process_kwargs, _validate_vkwargs_dict
 from mplfinance._arg_validators import _kwarg_not_implemented, _bypass_kwarg_validation
 from mplfinance._arg_validators import _hlines_validator, _vlines_validator
 from mplfinance._arg_validators import _alines_validator, _tlines_validator
+from mplfinance._arg_validators import _trades_validator
 
 VALID_PMOVE_TYPES = ['renko', 'pnf']
 
@@ -167,6 +168,13 @@ def _valid_plot_kwargs():
  
         'tlines'                    : { 'Default'     : None, 
                                         'Validator'   : lambda value: _tlines_validator(value) },
+
+        'buys':                       { 'Default': None,
+                                        'Validator': lambda value: _trades_validator(value)},
+
+        'sells': {'Default': None,
+                  'Validator': lambda value: _trades_validator(value)},
+
     }
 
     _validate_vkwargs_dict(vkwargs)
@@ -246,7 +254,25 @@ def plot( data, **kwargs ):
         for apdict in addplot:
             if apdict['panel'] == 'lower':
                 need_lower_panel = True
-                break           
+                break
+
+    adp_data = []
+    for side in ['buys', 'sells']:
+        trades = kwargs.get(side, None)
+        if trades is not None:
+            if isinstance(trades, dict):
+                kwargs_add = {x: trades[x] for x in trades if x not in {"data"}}
+                adp_data.append(make_addplot(trades['data'], **kwargs_add))
+            else:
+                adp_data.append(make_addplot(trades, **default_trades_parameters(side, style)))
+
+
+    # Add buys/sells to addplot if it exists or make it the new addplot
+    if adp_data != []:
+        if addplot is not None:
+            addplot += adp_data
+        else:
+            addplot = adp_data
 
     #  fig.add_axes( [left, bottom, width, height] ) ... numbers are fraction of fig
     if need_lower_panel or config['volume']:
@@ -432,7 +458,8 @@ def plot( data, **kwargs ):
     
     used_ax3 = False
     used_ax4 = False
-    addplot = config['addplot']
+
+    # addplot = config['addplot'] # defined above
     if addplot is not None and ptype not in VALID_PMOVE_TYPES:
         # Calculate the Order of Magnitude Range
         # If addplot['secondary_y'] == 'auto', then: If the addplot['data']
@@ -502,6 +529,20 @@ def plot( data, **kwargs ):
                 if ax == ax4:
                     used_ax4 = True
 
+                # If we are not given data as a DataFrame or the length of addplot data
+                # is the same, default xaxis to xdates
+                if not havedf or len(apdata.index) == len(data.index):
+                    apdates = xdates
+
+                # If the addplot data is different in length, we calculate xdates
+                # similar to above
+                else:
+                    if type(formatter) == IntegerIndexDateTimeFormatter:
+                        apdates = convert_to_integer_index_dates(data, apdata)
+                    else:
+                        apdates = mdates.date2num(apdata.index.to_pydatetime())
+
+
                 if apdict['scatter']:
                     size  = apdict['markersize']
                     mark  = apdict['marker']
@@ -510,11 +551,11 @@ def plot( data, **kwargs ):
                     # This fixes Issue#77, but breaks other stuff:
                     # ax.set_ylim(ymin=(miny - 0.4*stdy),ymax=(maxy + 0.4*stdy))
                     # -------------------------------------------------------- #
-                    ax.scatter(xdates, ydata, s=size, marker=mark, color=color)
+                    ax.scatter(apdates, ydata, s=size, marker=mark, color=color)
                 else:
                     ls    = apdict['linestyle']
                     color = apdict['color']
-                    ax.plot(xdates, ydata, linestyle=ls, color=color)
+                    ax.plot(apdates, ydata, linestyle=ls, color=color)
 
     # put the twinx() on the "other" side:
     if style['y_on_right']:
@@ -661,3 +702,27 @@ def make_addplot(data, **kwargs):
     config = _process_kwargs(kwargs, _valid_addplot_kwargs())
 
     return dict( data=data, **config)
+
+def convert_to_integer_index_dates(data, trades):
+    '''
+    If we are plotting data where show_nontrading=False, then we need to calculate
+    each x-axis point individually since the x-axis is formatted as an
+    IntegerIndexDateTimeFormatter
+    '''
+
+    # It might make sense to move this as a helper function in IntegerIndexDateTimeFormatter
+    fixed_xdates = []
+    for i in range(len(trades)):
+        time_delta = abs(data.index - trades.index[i])
+        fixed_xdates.append(time_delta.argmin())
+    return fixed_xdates
+
+def default_trades_parameters(side, style):
+    params = {"scatter": True}
+    if side == 'buys':
+        params['color'] = style['marketcolors']['volume']['up']
+        params['marker'] = '^'
+    else:
+        params['color'] = style['marketcolors']['volume']['down']
+        params['marker'] = 'v'
+    return params
